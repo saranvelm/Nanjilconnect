@@ -101,7 +101,8 @@ const TRANSLATIONS = {
     firstInQueueAlert: 'YOU ARE #1 IN LINE! Please be ready—the stylist will call you shortly.',
     nowConsulting: 'Now Serving',
     yourActiveAppointment: 'Your Active Appointment',
-    queuePosition: 'Queue Position'
+    queuePosition: 'Queue Position',
+    estimatedWait: 'Estimated Wait Time'
   },
   ta: {
     appName: 'SalonRoster',
@@ -168,7 +169,8 @@ const TRANSLATIONS = {
     firstInQueueAlert: 'நீங்கள் வரிசையில் #1 இடத்தில் உள்ளீர்கள்! தயாராக இருங்கள்—ஸ்டைலிஸ்ட் உங்களை விரைவில் அழைப்பார்.',
     nowConsulting: 'சேவை நடைபெறுகிறது',
     yourActiveAppointment: 'உங்கள் தற்போதைய முன்பதிவு',
-    queuePosition: 'வரிசையில் இடம்'
+    queuePosition: 'வரிசையில் இடம்',
+    estimatedWait: 'மதிப்பிடப்பட்ட காத்திருப்பு நேரம்'
   }
 };
 
@@ -344,7 +346,7 @@ function TvDisplay({ salonId, t }) {
     return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white text-xl">Loading Waiting Room...</div>;
   }
 
-  const availableChairs = salon.total_seats - salon.occupied_seats;
+  const availableChairs = Math.max(0, salon.total_seats - salon.occupied_seats);
   const inConsult = queue.filter(q => q.status === 'in-consult');
   const waitingList = queue.filter(q => q.status === 'waiting');
 
@@ -387,12 +389,11 @@ function TvDisplay({ salonId, t }) {
             Now Serving
           </div>
           {inConsult.length > 0 ? (
-            <div className="space-y-4 animate-pulse mt-4 w-full">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-400">Please Step In</span>
-              <div className={`grid gap-4 w-full ${inConsult.length === 1 ? 'grid-cols-1 max-w-md mx-auto' : 'grid-cols-2'}`}>
+            <div className="space-y-4 mt-4 w-full">
+              <div className="flex flex-col gap-4 w-full max-w-md mx-auto">
                 {inConsult.map(item => (
-                  <div key={item.id} className="bg-blue-600 text-white px-5 py-5 rounded-2xl shadow-lg flex flex-col justify-center">
-                    <h2 className="text-2xl lg:text-3xl font-black break-words">{item.customer_name}</h2>
+                  <div key={item.id} className="bg-blue-600 text-white px-6 py-4 rounded-2xl shadow-lg w-full">
+                    <h2 className="text-3xl font-black break-words">{item.customer_name}</h2>
                     <p className="text-xs text-blue-100 mt-1">Party of {item.seats_count || 1} chairs</p>
                   </div>
                 ))}
@@ -673,6 +674,12 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
   const [editOpenTime, setEditOpenTime] = useState('09:00');
   const [editCloseTime, setEditCloseTime] = useState('21:00');
 
+  const [editingChairs, setEditingChairs] = useState(false);
+  const [editTotalSeats, setEditTotalSeats] = useState(4);
+
+  const [editingWaitTime, setEditingWaitTime] = useState(false);
+  const [editWaitMinutes, setEditWaitMinutes] = useState(30);
+
   const [showQrModal, setShowQrModal] = useState(false);
   const [walkInName, setWalkInName] = useState('');
   const [walkInPhone, setWalkInPhone] = useState('');
@@ -703,6 +710,8 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
       setSalon(data);
       setEditOpenTime(data.opening_time || '09:00');
       setEditCloseTime(data.closing_time || '21:00');
+      setEditTotalSeats(data.total_seats || 4);
+      setEditWaitMinutes(data.avg_wait_minutes ?? 30);
     }
   }
 
@@ -729,6 +738,7 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
         booking_paused: false,
         opening_time: openingTime,
         closing_time: closingTime,
+        avg_wait_minutes: 30,
         is_open: true,
         is_closed: false
       }])
@@ -738,6 +748,8 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
       setSalon(data);
       setEditOpenTime(data.opening_time || '09:00');
       setEditCloseTime(data.closing_time || '21:00');
+      setEditTotalSeats(data.total_seats || 4);
+      setEditWaitMinutes(data.avg_wait_minutes ?? 30);
     }
   }
 
@@ -750,6 +762,42 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
     if (!error) {
       setSalon({ ...salon, opening_time: editOpenTime, closing_time: editCloseTime });
       setEditingHours(false);
+    }
+  }
+
+  async function saveTotalChairs(e) {
+    e.preventDefault();
+    const newSeatsNum = parseInt(editTotalSeats, 10);
+    if (isNaN(newSeatsNum) || newSeatsNum < 1) return;
+
+    const { error } = await supabase
+      .from('salons')
+      .update({ total_seats: newSeatsNum })
+      .eq('id', salon.id);
+
+    if (!error) {
+      setSalon({ ...salon, total_seats: newSeatsNum });
+      setEditingChairs(false);
+    } else {
+      alert('Could not update total chairs: ' + error.message);
+    }
+  }
+
+  async function saveAvgWaitMinutes(e) {
+    e.preventDefault();
+    const newMinutes = parseInt(editWaitMinutes, 10);
+    if (isNaN(newMinutes) || newMinutes < 1) return;
+
+    const { error } = await supabase
+      .from('salons')
+      .update({ avg_wait_minutes: newMinutes })
+      .eq('id', salon.id);
+
+    if (!error) {
+      setSalon({ ...salon, avg_wait_minutes: newMinutes });
+      setEditingWaitTime(false);
+    } else {
+      alert('Could not update average wait time: ' + error.message);
     }
   }
 
@@ -802,6 +850,19 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
 
   async function updateQueueStatus(entryId, newStatus) {
     await supabase.from('waitlist').update({ status: newStatus }).eq('id', entryId);
+
+    const { data: activeQueue } = await supabase
+      .from('waitlist')
+      .select('*')
+      .eq('salon_id', salon.id)
+      .eq('status', 'in-consult');
+
+    const totalOccupied = (activeQueue || []).reduce((sum, item) => sum + (item.seats_count || 1), 0);
+    const clampedOccupied = Math.min(salon.total_seats, totalOccupied);
+
+    await supabase.from('salons').update({ occupied_seats: clampedOccupied }).eq('id', salon.id);
+
+    setSalon({ ...salon, occupied_seats: clampedOccupied });
     fetchQueue(salon.id);
   }
 
@@ -887,7 +948,7 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
     );
   }
 
-  const availableSeats = salon.total_seats - salon.occupied_seats;
+  const availableSeats = Math.max(0, salon.total_seats - salon.occupied_seats);
   const totalWaitingSeats = queue.reduce((sum, item) => sum + (item.seats_count || 1), 0);
   const directCheckInUrl = `${window.location.origin}/?salon=${salon.id}`;
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(directCheckInUrl)}`;
@@ -910,17 +971,45 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
             <p className="text-sm text-slate-500 mt-0.5">
               Good day, {profile?.full_name || 'Owner'} • {salon.address}
             </p>
-            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
-              <span>
+            <div className="flex items-center gap-4 mt-2 text-xs text-slate-500 flex-wrap">
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
                 Hours: {formatTime12h(salon.opening_time || '09:00')} – {formatTime12h(salon.closing_time || '21:00')}
+                <button
+                  onClick={() => setEditingHours(!editingHours)}
+                  className="text-blue-600 hover:underline font-semibold inline-flex items-center gap-1 ml-1 cursor-pointer"
+                >
+                  <Edit3 className="w-3 h-3" /> Edit
+                </button>
               </span>
-              <button
-                onClick={() => setEditingHours(!editingHours)}
-                className="text-blue-600 hover:underline font-semibold inline-flex items-center gap-1 ml-1 cursor-pointer"
-              >
-                <Edit3 className="w-3 h-3" /> Edit
-              </button>
+
+              <span className="inline-flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                <Scissors className="w-3.5 h-3.5 text-blue-600" />
+                <span>Total Chairs: <strong className="text-slate-900">{salon.total_seats}</strong></span>
+                <button
+                  onClick={() => {
+                    setEditTotalSeats(salon.total_seats);
+                    setEditingChairs(!editingChairs);
+                  }}
+                  className="text-blue-600 hover:underline font-semibold inline-flex items-center gap-1 ml-1 cursor-pointer"
+                >
+                  <Edit3 className="w-3 h-3" /> Edit
+                </button>
+              </span>
+
+              <span className="inline-flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                <Clock className="w-3.5 h-3.5 text-blue-600" />
+                <span>Wait Rate: <strong className="text-slate-900">{salon.avg_wait_minutes ?? 30}m / chair</strong></span>
+                <button
+                  onClick={() => {
+                    setEditWaitMinutes(salon.avg_wait_minutes ?? 30);
+                    setEditingWaitTime(!editingWaitTime);
+                  }}
+                  className="text-blue-600 hover:underline font-semibold inline-flex items-center gap-1 ml-1 cursor-pointer"
+                >
+                  <Edit3 className="w-3 h-3" /> Edit
+                </button>
+              </span>
             </div>
           </div>
 
@@ -960,6 +1049,66 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
             </button>
           </div>
         </div>
+
+        {editingChairs && (
+          <form onSubmit={saveTotalChairs} className="pt-3 border-t border-slate-100 flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Update Total Chairs</label>
+              <input
+                type="number"
+                min="1"
+                max="50"
+                required
+                value={editTotalSeats}
+                onChange={(e) => setEditTotalSeats(e.target.value)}
+                className="border border-slate-300 rounded-xl px-3 py-1.5 text-sm w-36"
+              />
+            </div>
+            <button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl cursor-pointer"
+            >
+              Save Chairs
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditingChairs(false)}
+              className="text-slate-500 hover:text-slate-700 text-xs font-semibold px-3 py-2 cursor-pointer"
+            >
+              Cancel
+            </button>
+          </form>
+        )}
+
+        {editingWaitTime && (
+          <form onSubmit={saveAvgWaitMinutes} className="pt-3 border-t border-slate-100 flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Avg Wait Time per Chair Deficit (Minutes)</label>
+              <input
+                type="number"
+                min="5"
+                max="120"
+                required
+                value={editWaitMinutes}
+                onChange={(e) => setEditWaitMinutes(e.target.value)}
+                className="border border-slate-300 rounded-xl px-3 py-1.5 text-sm w-48"
+              />
+            </div>
+            <button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl cursor-pointer"
+            >
+              Save Wait Rate
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditingWaitTime(false)}
+              className="text-slate-500 hover:text-slate-700 text-xs font-semibold px-3 py-2 cursor-pointer"
+            >
+              Cancel
+            </button>
+          </form>
+        )}
 
         {editingHours && (
           <form onSubmit={saveOperatingHours} className="pt-3 border-t border-slate-100 flex flex-wrap items-end gap-3">
@@ -1115,16 +1264,33 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
                         {t.callIn}
                       </button>
                     ) : (
-                      <button
-                        onClick={() => updateQueueStatus(entry.id, 'seated')}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" /> {t.complete}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-md">
+                          In Consult
+                        </span>
+                        {/* Smaller, Softer Green Tick for Complete */}
+                        <button
+                          onClick={() => updateQueueStatus(entry.id, 'seated')}
+                          title="Complete service"
+                          className="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg cursor-pointer transition"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        {/* Smaller, Softer Red Cross for No-Show: Reverts status back to 'waiting' */}
+                        <button
+                          onClick={() => updateQueueStatus(entry.id, 'waiting')}
+                          title="No show: Revert back to waiting queue"
+                          className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg cursor-pointer transition"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
 
+                    {/* Original cancel icon to remove from queue entirely */}
                     <button
                       onClick={() => updateQueueStatus(entry.id, 'cancelled')}
+                      title="Remove from queue"
                       className="p-2 text-slate-400 hover:text-red-600 rounded-xl cursor-pointer"
                     >
                       <XCircle className="w-4 h-4" />
@@ -1170,7 +1336,7 @@ function OwnerDashboard({ user, profile, t, openTvView }) {
   );
 }
 
-/* ---------------- CUSTOMER DASHBOARD (With Real-time Call-In Alerts) ---------------- */
+/* ---------------- CUSTOMER DASHBOARD ---------------- */
 function CustomerDashboard({ user, profile, t }) {
   const [salons, setSalons] = useState([]);
   const [waitlists, setWaitlists] = useState([]);
@@ -1483,9 +1649,19 @@ function CustomerDashboard({ user, profile, t }) {
           </div>
         ) : (
           displayedSalons.map((salon) => {
-            const available = salon.total_seats - salon.occupied_seats;
+            const available = Math.max(0, salon.total_seats - salon.occupied_seats);
             const salonQueue = waitlists.filter((w) => w.salon_id === salon.id);
-            const salonQueueSeats = salonQueue.reduce((sum, w) => sum + (w.seats_count || 1), 0);
+            
+            const inConsultCount = salonQueue.filter(w => w.status === 'in-consult').reduce((sum, w) => sum + (w.seats_count || 1), 0);
+            const waitingCount = salonQueue.filter(w => w.status === 'waiting').reduce((sum, w) => sum + (w.seats_count || 1), 0);
+            const inConsultParties = salonQueue.filter(w => w.status === 'in-consult').length;
+            const waitingParties = salonQueue.filter(w => w.status === 'waiting').length;
+
+            const totalActiveDemand = inConsultCount + waitingCount;
+            const deficit = Math.max(0, totalActiveDemand - salon.total_seats);
+            const waitRate = salon.avg_wait_minutes ?? 30;
+            const estimatedWaitMinutes = deficit * waitRate;
+
             const isFull = available === 0 || !salon.is_open;
             const isAlreadyHere = myActiveEntry?.salon_id === salon.id;
             const isFavorite = favoriteIds.includes(salon.id);
@@ -1519,9 +1695,16 @@ function CustomerDashboard({ user, profile, t }) {
                     <p className="text-xs text-slate-400 mt-0.5">
                       Hours: {formatTime12h(salon.opening_time || '09:00')} – {formatTime12h(salon.closing_time || '21:00')}
                     </p>
-                    <p className="text-xs font-medium text-slate-400 mt-1">
-                      {salonQueue.length} parties ({salonQueueSeats} chairs) in waitlist
-                    </p>
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      <p className="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
+                        {inConsultParties} in consult ({inConsultCount} chairs) + {waitingParties} waiting ({waitingCount} chairs)
+                      </p>
+                      {estimatedWaitMinutes > 0 && (
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" /> {t.estimatedWait}: ~{estimatedWaitMinutes} mins
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
